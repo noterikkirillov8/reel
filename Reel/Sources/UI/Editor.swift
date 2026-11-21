@@ -84,10 +84,7 @@ final class EditorModel {
     }
 
     func setTrim(start: Double? = nil, end: Double? = nil) {
-        var s = project.settings
-        let a = min(max(start ?? s.trimStart, 0), duration), b = min(max(end ?? (s.trimEnd ?? duration), 0), duration)
-        if start != nil { s.trimStart = min(a, b - 0.5) } else { s.trimEnd = max(b, s.trimStart + 0.5) }
-        if s.trimEnd.map({ $0 >= duration - 0.001 }) ?? false { s.trimEnd = nil }
+        let s = project.settings.trimmed(start: start, end: end, duration: duration)
         project.settings = s
         playhead = min(max(playhead, s.trimStart), project.trimEnd)
         seek(playhead)
@@ -126,6 +123,11 @@ final class EditorModel {
         if playhead >= trimEnd - 0.05 { seek(trimStart) }
         playing = true
         player.play()
+    }
+    /// Arrow keys: one frame, or a second with Shift. Stays inside the trim.
+    func step(_ seconds: Double) {
+        pause()
+        seek(project.clampedToTrim(playhead + seconds))
     }
     func pause() { playing = false; player?.pause() }
     func seek(_ t: Double) {

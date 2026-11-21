@@ -20,7 +20,10 @@ private final class Unsafe<T>: @unchecked Sendable { var value: T; init(_ v: T) 
 /// Frame-by-frame render: capture -> Compositor -> AVAssetWriter. Output frames come at a fixed rate whatever the capture's
 /// timing was (ScreenCaptureKit only delivers a frame when something changes), so zoom eases stay smooth on a still screen.
 enum Exporter {
-    static let ffmpegPath = "/opt/homebrew/bin/ffmpeg"
+    /// Homebrew puts ffmpeg in /opt/homebrew on Apple silicon and /usr/local on Intel.
+    static var ffmpegPath: String {
+        ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"].first { FileManager.default.isExecutableFile(atPath: $0) } ?? "/opt/homebrew/bin/ffmpeg"
+    }
     static var gifAvailable: Bool { FileManager.default.isExecutableFile(atPath: ffmpegPath) }
 
     static func export(_ project: Project, options: ExportOptions, to out: URL,
@@ -126,7 +129,10 @@ enum Exporter {
             let t = start + Double(i) / Double(fps)
             while let u = upcoming, u.1 <= t + 1e-6 { current = u.0; upcoming = nextFrame() }
             guard let pb = current ?? upcoming?.0 else { abort(); throw ExportError.reader("no frames") }
-            while !vin.isReadyForMoreMediaData { try pumpAudio(until: Double(i) / Double(fps) + 3); try await Task.sleep(for: .milliseconds(2)) }
+            while !vin.isReadyForMoreMediaData {
+                if cancelled() { abort(); throw CancellationError() }
+                if writer.status == .failed { let reason = writer.error?.localizedDescription ?? "write"; abort(); throw ExportError.writer(reason) }
+                try pumpAudio(until: Double(i) / Double(fps) + 3); try await Task.sleep(for: .milliseconds(2)) }
             try pumpAudio(until: Double(i) / Double(fps) + 3)
             guard let pool = adaptor.pixelBufferPool else { abort(); throw ExportError.writer("no pixel buffer pool") }
             var outBuffer: CVPixelBuffer?
@@ -141,6 +147,7 @@ enum Exporter {
         }
         vin.markAsFinished()
         while !audioDone {
+            if writer.status == .failed { let reason = writer.error?.localizedDescription ?? "write"; abort(); throw ExportError.writer(reason) }
             try pumpAudio(until: .infinity)
             if !audioDone { try await Task.sleep(for: .milliseconds(2)) }
         }

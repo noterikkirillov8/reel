@@ -50,6 +50,16 @@ struct ProjectSettings: Codable, Equatable, Sendable {
 
     init() {}
 
+    /// Moves one trim handle. At least half a second stays (the whole clip when it is shorter) and nothing leaves 0...duration.
+    func trimmed(start: Double? = nil, end: Double? = nil, duration: Double) -> ProjectSettings {
+        var s = self
+        let gap = min(0.5, duration)
+        let a = min(max(start ?? s.trimStart, 0), duration), b = min(max(end ?? (s.trimEnd ?? duration), 0), duration)
+        if start != nil { s.trimStart = max(0, min(a, b - gap)) } else { s.trimEnd = min(duration, max(b, s.trimStart + gap)) }
+        if s.trimEnd.map({ $0 >= duration - 0.001 }) ?? false { s.trimEnd = nil }
+        return s
+    }
+
     /// Older project.json files lack the follow keys; they get the defaults instead of failing to load.
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: Keys.self)
@@ -82,9 +92,11 @@ struct Project: Sendable {
     var folder: URL
     var log: EventLog
     var settings: ProjectSettings
+    var editsLost = false           // project.json was unreadable; it is kept as project.corrupt.json
 
     var capture: URL { folder.appendingPathComponent("capture.mov") }
     var duration: Double { log.duration }
+    func clampedToTrim(_ t: Double) -> Double { min(max(t, settings.trimStart), trimEnd) }
     var trimEnd: Double { min(settings.trimEnd ?? log.duration, log.duration) }
 
     static var root: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/Reel", isDirectory: true) }
@@ -92,13 +104,24 @@ struct Project: Sendable {
     static func load(_ folder: URL) throws -> Project {
         let log = try JSONDecoder().decode(EventLog.self, from: Data(contentsOf: folder.appendingPathComponent("events.json")))
         var settings: ProjectSettings
-        if let data = try? Data(contentsOf: folder.appendingPathComponent("project.json")), let s = try? JSONDecoder().decode(ProjectSettings.self, from: data) {
-            settings = s
+        var lost = false
+        let file = folder.appendingPathComponent("project.json")
+        if let data = try? Data(contentsOf: file) {
+            if let s = try? JSONDecoder().decode(ProjectSettings.self, from: data) { settings = s }
+            else {
+                // Keep the unreadable file so nothing is silently lost, then start from the clicks again.
+                let kept = folder.appendingPathComponent("project.corrupt.json")
+                try? FileManager.default.removeItem(at: kept)
+                try? FileManager.default.moveItem(at: file, to: kept)
+                settings = ProjectSettings(); settings.segments = Zoom.generate(log); lost = true
+            }
         } else {
             settings = ProjectSettings()
             settings.segments = Zoom.generate(log)
         }
-        return Project(folder: folder, log: log, settings: settings)
+        var project = Project(folder: folder, log: log, settings: settings)
+        project.editsLost = lost
+        return project
     }
 
     func save() throws {

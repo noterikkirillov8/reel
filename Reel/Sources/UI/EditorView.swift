@@ -13,7 +13,11 @@ struct EditorView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     header
                     if model.project.log.stoppedEarly == true {
-                        Label("Recording stopped early (screen locked)", systemImage: "info.circle")
+                        Label("Recording stopped early. What was captured is here.", systemImage: "info.circle")
+                            .font(KitFont.detail).foregroundStyle(KitColor.text2)
+                    }
+                    if model.project.editsLost {
+                        Label("Your earlier edits could not be loaded. The old file is kept as project.corrupt.json.", systemImage: "info.circle")
                             .font(KitFont.detail).foregroundStyle(KitColor.text2)
                     }
                     preview
@@ -35,6 +39,14 @@ struct EditorView: View {
         .kitPanelEntrance(shown, anchor: .center)
         .focusable().focusEffectDisabled().focused($focused)
         .onKeyPress(.space) { model.exportPhase == .closed ? { model.togglePlay(); return .handled }() : .ignored }
+        .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
+            guard model.exportPhase == .closed else { return .ignored }
+            model.step((press.modifiers.contains(.shift) ? 1 : 1.0 / 30) * (press.key == .leftArrow ? -1 : 1)); return .handled
+        }
+        .onKeyPress(.escape) {
+            switch model.exportPhase { case .closed, .running: return .ignored; default: model.closeExport(); return .handled }
+        }
+        .onKeyPress(.return) { if case .options = model.exportPhase { model.startExport(); return .handled }; return .ignored }
         .onKeyPress(.delete) { model.exportPhase == .closed ? { model.deleteSelected(); return .handled }() : .ignored }
         .onAppear { shown = true; focused = true }
     }

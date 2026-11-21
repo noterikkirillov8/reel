@@ -12,7 +12,7 @@ Requires macOS 15 or later.
 - Records a display, a window or a dragged area at 60 fps (or 30), without the system cursor. Big and ultrawide screens work too.
 - Records the Mac's sound (notification sounds included) and, optionally, the microphone. Mac sound is on by default and has a switch in the menu and in Settings.
 - If a recording is cut short by a lock, sleep or an unplugged display, what was captured is saved and opens as a project.
-- Every click, or cluster of clicks, becomes a zoom you can drag, resize or delete.
+- Every click, or cluster of clicks, becomes a zoom. Drag its key up or down (or use the slider) to set how far it zooms, or delete it; Reset starts over from the clicks.
 - The cursor and click rings are drawn afterwards from a mouse log.
 - Frame the video: background colour, padding, corners, shadow.
 - Export MP4 (H.264 or HEVC, 1080p or source size) or GIF (needs ffmpeg).

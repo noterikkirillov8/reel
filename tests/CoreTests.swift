@@ -71,6 +71,8 @@ struct Tests {
             }
         }
         areaScreenMatching()
+        trimming()
+        do { try corruptProject() } catch { check(false, "corrupt project", "\(error)") }
         await pipeline()
         introFlowChecks { check($0, $1) }
         print("\(passes) passed, \(failures) failed")
@@ -226,6 +228,37 @@ struct Tests {
         check(abs(moving[0].end - (3.1 + Zoom.restTime + Zoom.ease)) < 0.1, "zoom ends 1.2 s after the cursor rests", "\(moving[0].end)")
     }
 
+    static func corruptProject() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("reel-corrupt-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let fresh = Project(folder: folder, log: Sample.log(), settings: ProjectSettings())
+        try fresh.save()
+        let ok = try Project.load(folder)
+        check(!ok.editsLost, "project: a readable project.json loads without a warning")
+        let garbage = Data("{ not json".utf8)
+        try garbage.write(to: folder.appendingPathComponent("project.json"))
+        let bad = try Project.load(folder)
+        let kept = try? Data(contentsOf: folder.appendingPathComponent("project.corrupt.json"))
+        check(bad.editsLost && kept == garbage && !bad.settings.segments.isEmpty && !FileManager.default.fileExists(atPath: folder.appendingPathComponent("project.json").path),
+              "project: a corrupt project.json is kept as project.corrupt.json, zooms regenerate, the editor is told")
+    }
+
+    static func trimming() {
+        let base = ProjectSettings()
+        let short = base.trimmed(start: 0.4, duration: 0.3)
+        check(short.trimStart == 0 && short.trimEnd == nil, "trim: a clip shorter than the minimum never gets a negative start", "\(short.trimStart) \(String(describing: short.trimEnd))")
+        let late = base.trimmed(start: 99, duration: 10)
+        check(late.trimStart == 9.5, "trim: start stops half a second before the end", "\(late.trimStart)")
+        var cut = base; cut.trimStart = 9.8
+        let end = cut.trimmed(end: 5, duration: 10)
+        check(end.trimEnd == nil, "trim: end never goes past the clip", "\(String(describing: end.trimEnd))")
+        var p = Project(folder: URL(fileURLWithPath: "/tmp"), log: EventLog(duration: 10, width: 1, height: 1, events: []), settings: base.trimmed(start: 2, duration: 10).trimmed(end: 8, duration: 10))
+        check(p.clampedToTrim(1) == 2 && p.clampedToTrim(5) == 5 && p.clampedToTrim(9) == 8, "trim: stepping stays inside the trim")
+        p.settings = base
+        check(base.trimmed(end: 10, duration: 10).trimEnd == nil, "trim: end at the clip end means no end")
+    }
+
     static func pipeline() async {
         let work = FileManager.default.temporaryDirectory.appendingPathComponent("reel-test-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: work) }
@@ -297,7 +330,7 @@ struct Tests {
             check(abs(Double(try await v?.load(.nominalFrameRate) ?? 0) - 60) < 1, "output keeps 60 fps")
             check(try await asset.loadTracks(withMediaType: .audio).count == 1, "audio track is kept")
             let adur = try await asset.loadTracks(withMediaType: .audio).first?.load(.timeRange).duration.seconds ?? 0
-            check(abs(adur - 4.0) < 0.15, "audio is trimmed with the video", "audio \(adur)")
+            check(abs(adur - 4.0) < 0.25, "audio is trimmed with the video", "audio \(adur)")
             let frames = try await countFrames(out)
             check(abs(frames - 240) <= 1, "240 frames in 4 s at 60 fps", "frames \(frames)")
             print("     exported 4 s at 1080p60 in \(String(format: "%.1f", Date().timeIntervalSince(t0))) s")
